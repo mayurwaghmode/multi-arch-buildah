@@ -1,71 +1,67 @@
----
-name: 'multi-arch images build'
- 
-on: push
-env:
-      IMAGE_NAME: hello-world-multiarch
-      IMAGE_REGISTRY: quay.io
-      IMAGE_NAMESPACE: mayurwaghmode111
-      IMAGE_TAG: latest
-  
-jobs:
+# This workflow will perform a test whenever there
+# is some change in code done to ensure that the changes
+# are not buggy and we are getting the desired output.
+name: Push to Quay.io
+on:
+  push:
 
-  build-multiplatform-containerfile:
-    name: Build multi-platform image using Containerfile
-    env:
-      IMAGE_NAME: hello-world-multiplatform
+env:
+  IMAGE_NAME: hello-world-multiarch
+  IMAGE_TAGS: latest
+  IMAGE_REGISTRY: quay.io
+  IMAGE_NAMESPACE: mayurwaghmode111
+
+jobs:
+  push-quay:
+    name: Build and push image
     runs-on: ubuntu-20.04
     strategy:
       fail-fast: false
       matrix:
-        platform: [ "linux/amd64", "linux/ppc64le" ]
         install_latest: [ true, false ]
 
     steps:
-
-      # Checkout buildah action github repository
-      - name: Checkout Buildah action
+      # Checkout push-to-registry action github repository
+      - name: Checkout Push to Registry action
         uses: actions/checkout@v2
         with:
           path: "multi-arch-buildah"
 
+      - name: Install latest podman
+        if: matrix.install_latest
+        run: |
+          bash multi-arch-buildah/.github/install_latest_podman.sh
+      
       - name: Install latest buildah
         if: matrix.install_latest
         run: |
           bash multi-arch-buildah/.github/install_latest_buildah.sh
-      - name: Install qemu dependency
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-user-static
-      - name: Create Containerfile
-        run: |
-          cat > Containerfile<<EOF
-          FROM docker.io/alpine:3.14
-          RUN echo "hello world"
-          ENTRYPOINT [ "sh", "-c", "echo -n 'Machine: ' && uname -m && echo -n 'Bits: ' && getconf LONG_BIT && echo 'goodbye world'" ]
-          EOF
+      # Build image using Buildah action
       - name: Build Image
-        id: build_image_multiplatform
+        id: build_image
         uses: ./multi-arch-buildah
         with:
           image: ${{ env.IMAGE_NAME }}
-          tags: ${{ env.IMAGE_TAG }}
-          platform: ${{ matrix.platform }}
-          containerfiles: |
-            ./Containerfile
-      - name: Echo Outputs
-        run: |
-          echo "Image: ${{ steps.build_image_multiplatform.outputs.image }}"
-          echo "Tags: ${{ steps.build_image_multiplatform.outputs.tags }}"
-          echo "Tagged Image: ${{ steps.build_image_multiplatform.outputs.image-with-tag }}"
-      - name: Check images created
-        run: buildah images | grep '${{ env.IMAGE_NAME }}'
+          tags: ${{ env.IMAGE_TAGS }}
+          base-image: busybox:latest
+          entrypoint: |
+            bash
+            -c
+            echo 'hello world'
+          oci: true
 
-      - name: Check image metadata
+      # Push the image to Quay.io (Image Registry)
+      - name: Push To Quay
+        uses: ./
+        id: push
+        with:
+          image: ${{ steps.build_image.outputs.image }}
+          tags: ${{ steps.build_image.outputs.tags }}
+          registry: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}
+          username: ${{ secrets.QUAY_USER }}
+          password: ${{ secrets.QUAY_PWD }}
+          extra-args: |
+            --disable-content-trust
+      - name: Echo outputs
         run: |
-          set -x
-          buildah inspect ${{ steps.build_image_multiplatform.outputs.image }}:${{ env.IMAGE_TAG }} | jq ".OCIv1.architecture"
-          buildah inspect ${{ steps.build_image_multiplatform.outputs.image }}:${{ env.IMAGE_TAG }} | jq ".Docker.architecture"
-      - name: Run image
-        run: |
-          podman run --rm ${{ steps.build_image_multiplatform.outputs.image }}:${{ env.IMAGE_TAG }}
+          echo "${{ toJSON(steps.push.outputs) }}"
