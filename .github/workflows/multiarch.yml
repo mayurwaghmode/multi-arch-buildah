@@ -27,7 +27,7 @@ jobs:
       - name: Checkout Buildah action
         uses: actions/checkout@v2
         with:
-          path: "buildah-build"
+          path: "multi-arch-buildah"
 
       - name: Install latest buildah
         if: matrix.install_latest
@@ -46,7 +46,7 @@ jobs:
           EOF
       - name: Build Image
         id: build_image_multiplatform
-        uses: ./buildah-build/
+        uses: ./multi-arch-buildah/
         with:
           image: ${{ env.IMAGE_NAME }}
           tags: ${{ env.IMAGE_TAG }}
